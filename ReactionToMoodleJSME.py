@@ -607,7 +607,7 @@ def render_reaction_app(lang=None):
         tab1, tab2 = st.tabs([texts["tab_manual"], texts["tab_bulk"]])
         
         with tab1:
-            # SEARCH FORM (With key counter to allow clearing)
+            # --- 4.1 SEARCH FORM ---
             with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
@@ -625,38 +625,65 @@ def render_reaction_app(lang=None):
                     else:
                         st.error(texts["name_error"].format(s_name))
             
-            # Action buttons for Search Results (Clears search after adding)
+            # --- 4.2 SEARCH ACTIONS (Concatenation logic) ---
             if st.session_state.search_result:
                 res = st.session_state.search_result
                 st.info(f"{texts['smiles_found']}: `{res}`")
                 c1, c2, c3 = st.columns(3)
                 
+                def append_smiles(target_key, new_smiles):
+                    current_val = st.session_state.get(target_key, "")
+                    if current_val.strip():
+                        st.session_state[target_key] = f"{current_val}, {new_smiles}".strip(", ")
+                    else:
+                        st.session_state[target_key] = new_smiles
+                    # Increment counter to force text_area refresh
+                    if "widget_counter" not in st.session_state:
+                        st.session_state.widget_counter = 0
+                    st.session_state.widget_counter += 1
+                    st.session_state.search_result = None
+                    st.session_state.search_counter += 1 
+                    st.rerun()
+
                 if c1.button(texts["add_to_reactants"], use_container_width=True):
-                    st.session_state.reactants_str = f"{st.session_state.reactants_str}, {res}".strip(", ")
-                    st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
-                    st.rerun()
+                    append_smiles("reactants_str", res)
                 if c2.button(texts["add_to_agents"], use_container_width=True):
-                    st.session_state.agents_str = f"{st.session_state.agents_str}, {res}".strip(", ")
-                    st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
-                    st.rerun()
+                    append_smiles("agents_str", res)
                 if c3.button(texts["add_to_products"], use_container_width=True):
-                    st.session_state.products_str = f"{st.session_state.products_str}, {res}".strip(", ")
-                    st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
-                    st.rerun()
+                    append_smiles("products_str", res)
 
             st.write("---")
             
-            # REACTION BUILDER
+            # --- 4.3 REACTION BUILDER ---
+            if "widget_counter" not in st.session_state:
+                st.session_state.widget_counter = 0
+                
             col_r, col_a, col_p = st.columns(3)
-            r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.reactants_str, key="r_area", height=100)
-            a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, key="a_area", height=100)
-            p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, key="p_area", height=100)
+
+            # Usamos claves dinámicas vinculadas al contador para evitar borrados entre campos
+            st.session_state.reactants_str = col_r.text_area(
+                texts["reactants_label"], 
+                value=st.session_state.get("reactants_str", ""), 
+                key=f"r_area_{st.session_state.widget_counter}", 
+                height=100
+            )
+            st.session_state.agents_str = col_a.text_area(
+                texts["agents_label"], 
+                value=st.session_state.get("agents_str", ""), 
+                key=f"a_area_{st.session_state.widget_counter}", 
+                height=100
+            )
+            st.session_state.products_str = col_p.text_area(
+                texts["products_label"], 
+                value=st.session_state.get("products_str", ""), 
+                key=f"p_area_{st.session_state.widget_counter}", 
+                height=100
+            )
             
-            r_list = [s.strip() for s in r_val.split(',') if s.strip()]
-            p_list = [s.strip() for s in p_val.split(',') if s.strip()]
+            # Procesamos listas directamente desde el session_state (evita error de variables no definidas)
+            r_list = [s.strip() for s in st.session_state.reactants_str.split(',') if s.strip()]
+            a_list = [s.strip() for s in st.session_state.agents_str.split(',') if s.strip()]
+            p_list = [s.strip() for s in st.session_state.products_str.split(',') if s.strip()]
             all_mols = r_list + p_list
             
             col_m, col_n = st.columns(2)
@@ -666,19 +693,26 @@ def render_reaction_app(lang=None):
                 format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})"
             ) if all_mols else None
             
-            q_name = col_n.text_input(texts["reaction_name_label"], value=f"Reaction {len(st.session_state.reaction_questions)+1}")
+            q_name = col_n.text_input(
+                texts["reaction_name_label"], 
+                value=f"Reaction {len(st.session_state.reaction_questions)+1}"
+            )
             
-            # Action Buttons: Add and New Question
+            # Botones de Acción
             cb1, cb2 = st.columns(2)
             if cb1.button(texts["add_reaction_button"], type="primary", use_container_width=True):
                 if q_name and missing_idx is not None:
                     miss = all_mols[missing_idx]
-                    rxn_sm = build_reaction_smiles(r_list, [s.strip() for s in a_val.split(',') if s.strip()], p_list)
+                    rxn_sm = build_reaction_smiles(r_list, a_list, p_list)
                     img = generate_reaction_image(rxn_sm, miss)
                     if img:
                         st.session_state.reaction_questions.append({
-                            'name': q_name, 'missing_smiles': miss, 'img_base64': img,
-                            'correct_feedback': 'Correct!', 'incorrect_feedback': '', 'normalized': False
+                            'name': q_name, 
+                            'missing_smiles': miss, 
+                            'img_base64': img,
+                            'correct_feedback': 'Correct!', 
+                            'incorrect_feedback': '', 
+                            'normalized': False
                         })
                         st.session_state.jsme_normalized = False
                         st.rerun()
@@ -687,6 +721,7 @@ def render_reaction_app(lang=None):
                 st.session_state.reactants_str = ""
                 st.session_state.agents_str = ""
                 st.session_state.products_str = ""
+                st.session_state.widget_counter += 1
                 st.rerun()
 
         with tab2:
@@ -694,13 +729,10 @@ def render_reaction_app(lang=None):
             uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader_input")
             
             if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True, key="bulk_proc_btn"):
-                # Call the processing function
                 process_bulk_file(uploaded)
-                # Reset normalization status as new questions are added
                 st.session_state.jsme_normalized = False
                 st.rerun()
             
-            # Display persistent messages from session state
             if st.session_state.get('bulk_success_message'):
                 st.success(st.session_state.bulk_success_message)
             if st.session_state.get('bulk_error_logs'):
