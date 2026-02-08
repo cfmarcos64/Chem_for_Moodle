@@ -20,16 +20,16 @@ import uuid
 # 1. MODULE AVAILABILITY CHECKS
 # ===================================================================
 
+RDKIT_AVAILABLE = False
 try:
     from rdkit import Chem
     from rdkit.Chem import Draw, rdDepictor, AllChem
     from rdkit.Chem.Draw import rdMolDraw2D
     RDKIT_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    # Esto nos dirá en la consola de Streamlit qué está fallando realmente
+    print(f"DEBUG: Error importing RDKit: {e}")
     Chem = None
-    rdDepictor = None
-    rdMolDraw2D = None
-    RDKIT_AVAILABLE = False
 
 PANDAS_AVAILABLE = True
 NUMPY_AVAILABLE = True if 'np' in globals() else False
