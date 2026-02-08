@@ -608,6 +608,7 @@ def render_reaction_app(lang=None):
         
         with tab1:
             # --- 4.1 SEARCH FORM ---
+            # (Mantenemos tu lógica de búsqueda que ya funciona)
             with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
@@ -616,14 +617,10 @@ def render_reaction_app(lang=None):
                     key=f"search_input_{st.session_state.search_counter}", 
                     label_visibility="collapsed"
                 )
-                s_btn = c_s2.form_submit_button(texts["search_button"], use_container_width=True)
-                
-                if s_btn and s_name:
+                if c_s2.form_submit_button(texts["search_button"], use_container_width=True) and s_name:
                     res = get_smiles_from_name(s_name)
-                    if res:
-                        st.session_state.search_result = res
-                    else:
-                        st.error(texts["name_error"].format(s_name))
+                    if res: st.session_state.search_result = res
+                    else: st.error(texts["name_error"].format(s_name))
             
             # --- 4.2 SEARCH ACTIONS ---
             if st.session_state.search_result:
@@ -632,61 +629,31 @@ def render_reaction_app(lang=None):
                 c1, c2, c3 = st.columns(3)
                 
                 def update_and_refresh(target_key, new_smiles):
-                    current_val = st.session_state.get(target_key, "")
-                    if current_val.strip():
-                        updated_val = f"{current_val}, {new_smiles}".strip(", ")
-                    else:
-                        updated_val = new_smiles
-                    
-                    st.session_state[target_key] = updated_val
-                    if "widget_counter" not in st.session_state:
-                        st.session_state.widget_counter = 0
-                    st.session_state.widget_counter += 1
+                    curr = st.session_state.get(target_key, "")
+                    st.session_state[target_key] = f"{curr}, {new_smiles}".strip(", ")
+                    st.session_state.widget_counter = st.session_state.get("widget_counter", 0) + 1
                     st.session_state.search_result = None
                     st.session_state.search_counter += 1 
                     st.rerun()
 
-                if c1.button(texts["add_to_reactants"], use_container_width=True):
-                    update_and_refresh("reactants_str", res)
-                if c2.button(texts["add_to_agents"], use_container_width=True):
-                    update_and_refresh("agents_str", res)
-                if c3.button(texts["add_to_products"], use_container_width=True):
-                    update_and_refresh("products_str", res)
+                if c1.button(texts["add_to_reactants"], key="btn_add_r"): update_and_refresh("reactants_str", res)
+                if c2.button(texts["add_to_agents"], key="btn_add_a"): update_and_refresh("agents_str", res)
+                if c3.button(texts["add_to_products"], key="btn_add_p"): update_and_refresh("products_str", res)
 
             st.write("---")
             
-            # --- 4.3 REACTION BUILDER ---
-            if "widget_counter" not in st.session_state:
-                st.session_state.widget_counter = 0
-                
-            col_r, col_a, col_p = st.columns(3)
-
-            # Recogemos los valores de los text_area
-            r_val = col_r.text_area(
-                texts["reactants_label"], 
-                value=st.session_state.get("reactants_str", ""), 
-                key=f"r_area_dyn_{st.session_state.widget_counter}", 
-                height=100
-            )
-            a_val = col_a.text_area(
-                texts["agents_label"], 
-                value=st.session_state.get("agents_str", ""), 
-                key=f"a_area_dyn_{st.session_state.widget_counter}", 
-                height=100
-            )
-            p_val = col_p.text_area(
-                texts["products_label"], 
-                value=st.session_state.get("products_str", ""), 
-                key=f"p_area_dyn_{st.session_state.widget_counter}", 
-                height=100
-            )
+            # --- 4.3 REACTION BUILDER (Versión Robusta) ---
+            w_idx = st.session_state.get("widget_counter", 0)
             
-            # Sincronización crucial para el botón "Add Reaction"
-            st.session_state.reactants_str = r_val
-            st.session_state.agents_str = a_val
-            st.session_state.products_str = p_val
+            col_r, col_a, col_p = st.columns(3)
+            # Nota: Usamos value=st.session_state.get para persistencia
+            r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.get("reactants_str", ""), key=f"r_area_{w_idx}", height=100)
+            a_val = col_a.text_area(texts["agents_label"], value=st.session_state.get("agents_str", ""), key=f"a_area_{w_idx}", height=100)
+            p_val = col_p.text_area(texts["products_label"], value=st.session_state.get("products_str", ""), key=f"p_area_{w_idx}", height=100)
+            
+            # Sincronizamos ANTES de procesar
+            st.session_state.reactants_str, st.session_state.agents_str, st.session_state.products_str = r_val, a_val, p_val
 
-            # Procesamos las listas ANTES de definir el selector de molécula faltante
             r_list = [s.strip() for s in r_val.split(',') if s.strip()]
             a_list = [s.strip() for s in a_val.split(',') if s.strip()]
             p_list = [s.strip() for s in p_val.split(',') if s.strip()]
@@ -694,71 +661,57 @@ def render_reaction_app(lang=None):
             
             col_m, col_n = st.columns(2)
             
-            # Selector de molécula faltante
-            missing_idx = None
-            if all_mols:
-                missing_idx = col_m.selectbox(
-                    texts["select_missing"], 
-                    range(len(all_mols)), 
-                    format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})",
-                    key=f"missing_sel_{st.session_state.widget_counter}" # También dinámico
-                )
+            # Selector de molécula faltante (Clave única)
+            m_idx = col_m.selectbox(
+                texts["select_missing"], 
+                range(len(all_mols)), 
+                format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})",
+                key=f"sel_miss_{w_idx}"
+            ) if all_mols else None
             
-            # Nombre de la pregunta
             q_name = col_n.text_input(
                 texts["reaction_name_label"], 
                 value=f"Reaction {len(st.session_state.reaction_questions)+1}",
-                key=f"q_name_{st.session_state.widget_counter}" # También dinámico
+                key=f"name_in_{w_idx}"
             )
             
-            # --- BOTONES DE ACCIÓN (Corregidos) ---
+            # BOTONES DE ACCIÓN
             cb1, cb2 = st.columns(2)
             
             if cb1.button(texts["add_reaction_button"], type="primary", use_container_width=True):
+                # Debug en caso de que falle silenciosamente
                 if not all_mols:
-                    st.warning("Please add some molecules first.")
-                elif q_name and missing_idx is not None:
-                    # Obtenemos la molécula a ocultar
-                    miss = all_mols[missing_idx]
-                    
-                    # Generamos el Reaction SMILES completo
-                    rxn_sm = build_reaction_smiles(r_list, a_list, p_list)
-                    
-                    # Generamos la imagen
-                    img = generate_reaction_image(rxn_sm, miss)
-                    
-                    if img:
-                        st.session_state.reaction_questions.append({
-                            'name': q_name, 
-                            'missing_smiles': miss, 
-                            'img_base64': img,
-                            'correct_feedback': 'Correct!', 
-                            'incorrect_feedback': '', 
-                            'normalized': False
-                        })
-                        st.session_state.jsme_normalized = False
-                        st.success(f"Added: {q_name}")
-                        st.rerun()
+                    st.error("Error: No hay moléculas en la reacción.")
+                elif m_idx is None:
+                    st.error("Error: No has seleccionado la molécula faltante.")
                 else:
-                    st.error("Missing name or selection.")
+                    try:
+                        miss_smiles = all_mols[m_idx]
+                        rxn_smiles = build_reaction_smiles(r_list, a_list, p_list)
+                        img_b64 = generate_reaction_image(rxn_smiles, miss_smiles)
+                        
+                        if img_b64:
+                            st.session_state.reaction_questions.append({
+                                'name': q_name, 
+                                'missing_smiles': miss_smiles, 
+                                'img_base64': img_b64,
+                                'correct_feedback': 'Correct!', 
+                                'incorrect_feedback': '', 
+                                'normalized': False
+                            })
+                            st.session_state.jsme_normalized = False
+                            st.rerun()
+                        else:
+                            st.error("Error al generar la imagen de la reacción.")
+                    except Exception as e:
+                        st.error(f"Error inesperado: {e}")
 
             if cb2.button(texts["new_question"], use_container_width=True, icon=":material/refresh:"):
                 st.session_state.reactants_str = ""
                 st.session_state.agents_str = ""
                 st.session_state.products_str = ""
-                st.session_state.widget_counter += 1
+                st.session_state.widget_counter = w_idx + 1
                 st.rerun()
-
-        with tab2:
-            # (El contenido de tab2 se mantiene igual)
-            st.markdown(texts["bulk_info"])
-            uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader_input")
-            
-            if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True):
-                process_bulk_file(uploaded)
-                st.session_state.jsme_normalized = False
-                st.rerun()
-
             # --- 5. Output Column ---
             with list_col:
                 st.subheader(texts["added_questions_title"])
