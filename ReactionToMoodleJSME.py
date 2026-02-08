@@ -651,11 +651,7 @@ def render_reaction_app(lang=None):
                     st.rerun()
             
             st.write("---")
-            
-            st.caption("Debug Reactants: " + st.session_state.reactants_str)
-            st.caption("Debug Agents: " + st.session_state.agents_str)
-            st.caption("Debug Products: " + st.session_state.products_str)
-            
+           
             # REACTION BUILDER – AÑADIMOS KEYS ESTABLES A LOS TEXT_AREA
             col_r, col_a, col_p = st.columns(3)
             
