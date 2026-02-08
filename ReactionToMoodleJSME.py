@@ -607,25 +607,26 @@ def render_reaction_app(lang=None):
         tab1, tab2 = st.tabs([texts["tab_manual"], texts["tab_bulk"]])
         
         with tab1:
-            # SEARCH FORM (With key counter to allow clearing)
+            # SEARCH FORM (mantiene counter para limpiar input después de añadir)
             with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
                 s_name = c_s1.text_input(
-                    texts["name_input_label"], 
-                    key=f"search_input_{st.session_state.search_counter}", 
+                    texts["name_input_label"],
+                    key=f"search_input_{st.session_state.search_counter}",
                     label_visibility="collapsed"
                 )
                 s_btn = c_s2.form_submit_button(texts["search_button"], use_container_width=True)
                 
-                if s_btn and s_name:
-                    res = get_smiles_from_name(s_name)
+                if s_btn and s_name.strip():
+                    res = get_smiles_from_name(s_name.strip())
                     if res:
                         st.session_state.search_result = res
+                        # NO rerun aquí → los botones de añadir aparecerán abajo en este mismo ciclo
                     else:
                         st.error(texts["name_error"].format(s_name))
             
-            # Action buttons for Search Results (Clears search after adding)
+            # Action buttons for Search Results (solo se muestran si hay resultado)
             if st.session_state.search_result:
                 res = st.session_state.search_result
                 st.info(f"{texts['smiles_found']}: `{res}`")
@@ -634,26 +635,50 @@ def render_reaction_app(lang=None):
                 if c1.button(texts["add_to_reactants"], use_container_width=True):
                     st.session_state.reactants_str = f"{st.session_state.reactants_str}, {res}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
+                    st.session_state.search_counter += 1  # Limpia el text_input de búsqueda
                     st.rerun()
+                
                 if c2.button(texts["add_to_agents"], use_container_width=True):
                     st.session_state.agents_str = f"{st.session_state.agents_str}, {res}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
+                    st.session_state.search_counter += 1
                     st.rerun()
+                
                 if c3.button(texts["add_to_products"], use_container_width=True):
                     st.session_state.products_str = f"{st.session_state.products_str}, {res}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1 # Clears text input
+                    st.session_state.search_counter += 1
                     st.rerun()
-
+            
             st.write("---")
             
-            # REACTION BUILDER
+            # REACTION BUILDER – AÑADIMOS KEYS ESTABLES A LOS TEXT_AREA
             col_r, col_a, col_p = st.columns(3)
-            r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.reactants_str, key="r_area", height=100)
-            a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, key="a_area", height=100)
-            p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, key="p_area", height=100)
+            
+            # Keys fijas → evita que se pierdan valores en reruns lentos en cloud
+            r_val = col_r.text_area(
+                texts["reactants_label"],
+                value=st.session_state.reactants_str,
+                key="reactants_area_stable_key",   # ← clave fija
+                height=100
+            )
+            a_val = col_a.text_area(
+                texts["agents_label"],
+                value=st.session_state.agents_str,
+                key="agents_area_stable_key",      # ← clave fija
+                height=100
+            )
+            p_val = col_p.text_area(
+                texts["products_label"],
+                value=st.session_state.products_str,
+                key="products_area_stable_key",    # ← clave fija
+                height=100
+            )
+            
+            # Actualizamos el estado solo después de que el usuario edite manualmente
+            st.session_state.reactants_str = r_val
+            st.session_state.agents_str = a_val
+            st.session_state.products_str = p_val
             
             r_list = [s.strip() for s in r_val.split(',') if s.strip()]
             p_list = [s.strip() for s in p_val.split(',') if s.strip()]
@@ -661,12 +686,15 @@ def render_reaction_app(lang=None):
             
             col_m, col_n = st.columns(2)
             missing_idx = col_m.selectbox(
-                texts["select_missing"], 
-                range(len(all_mols)), 
+                texts["select_missing"],
+                range(len(all_mols)),
                 format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})"
             ) if all_mols else None
             
-            q_name = col_n.text_input(texts["reaction_name_label"], value=f"Reaction {len(st.session_state.reaction_questions)+1}")
+            q_name = col_n.text_input(
+                texts["reaction_name_label"],
+                value=f"Reaction {len(st.session_state.reaction_questions)+1}"
+            )
             
             # Action Buttons: Add and New Question
             cb1, cb2 = st.columns(2)
@@ -677,12 +705,16 @@ def render_reaction_app(lang=None):
                     img = generate_reaction_image(rxn_sm, miss)
                     if img:
                         st.session_state.reaction_questions.append({
-                            'name': q_name, 'missing_smiles': miss, 'img_base64': img,
-                            'correct_feedback': 'Correct!', 'incorrect_feedback': '', 'normalized': False
+                            'name': q_name,
+                            'missing_smiles': miss,
+                            'img_base64': img,
+                            'correct_feedback': 'Correct!',
+                            'incorrect_feedback': '',
+                            'normalized': False
                         })
                         st.session_state.jsme_normalized = False
                         st.rerun()
-
+            
             if cb2.button(texts["new_question"], use_container_width=True, icon=":material/refresh:"):
                 st.session_state.reactants_str = ""
                 st.session_state.agents_str = ""
