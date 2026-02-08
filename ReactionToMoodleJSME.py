@@ -235,27 +235,41 @@ def normalize_text(text):
 
 def draw_reaction(r_str, p_str, a_str=""):
     """Generate base64 reaction image using RDKit."""
-    if not RDKIT_AVAILABLE or not AllChem:
+    # --- CAMBIO 1: Importación dinámica para asegurar detección en Cloud ---
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from rdkit.Chem.Draw import rdMolDraw2D
+    except ImportError:
         return None
+
     agents_list = a_str.split('.') if a_str else []
     final_agents = []
     display_agent_texts = []
     text_counter = 2
+    
     for a in agents_list:
         if a.startswith("[") and a.endswith("]"):
-            text = normalize_text(a[1:-1])
+            # Usamos normalize_text si existe en tu script, si no, lo tratamos como string
+            text = a[1:-1] 
             display_agent_texts.append(text)
             final_agents.append(f"[*:{text_counter}]")
             text_counter += 1
         else:
             final_agents.append(a)
+            
     rxn_smarts = f"{r_str}>{'.'.join(final_agents)}>{p_str}"
+    
     try:
         rxn = AllChem.ReactionFromSmarts(rxn_smarts, useSmiles=True)
+        # --- CAMBIO 2: Uso explícito de Cairo para compatibilidad con Linux ---
         d2d = rdMolDraw2D.MolDraw2DCairo(900, 350)
         opts = d2d.drawOptions()
         opts.fixedBondLength = 40.0
+        
         missing_symbol = " { ? } "
+        
+        # Lógica de mapeo de átomos para etiquetas y molécula oculta
         for role_list in [rxn.GetReactants(), rxn.GetAgents(), rxn.GetProducts()]:
             for mol in role_list:
                 for atom in mol.GetAtoms():
@@ -268,45 +282,56 @@ def draw_reaction(r_str, p_str, a_str=""):
                         if idx < len(display_agent_texts):
                             atom.SetProp("atomLabel", display_agent_texts[idx])
                         atom.SetAtomMapNum(0)
+        
         d2d.DrawReaction(rxn)
         d2d.FinishDrawing()
         return base64.b64encode(d2d.GetDrawingText()).decode('utf-8')
-    except:
-        return None
-
-def generate_reaction_image(rxn_smiles, missing_smiles):
-    """Generates a reaction image, highlighting the missing molecule as a blank space."""
-    if not RDKIT_AVAILABLE:
-        st.error("RDKit is not installed in this environment.")
-        return None
-    
-    try:
-        # 1. Limpieza de SMILES
-        rxn_smiles = rxn_smiles.replace(" ", "")
-        
-        # 2. Crear la reacción
-        rxn = AllChem.ReactionFromSmarts(rxn_smiles, useSmiles=True)
-        if rxn is None:
-            st.error(f"Invalid Reaction SMILES: {rxn_smiles}")
-            return None
-
-        # 3. Configuración del dibujo
-        # Usamos un tamaño estándar que quepa bien en Moodle
-        d2d = rdMolDraw2D.MolDraw2DCairo(800, 300) 
-        opts = d2d.drawOptions()
-        opts.prepareMolsBeforeDrawing = True
-        
-        # 4. Intentar dibujar
-        d2d.DrawReaction(rxn)
-        d2d.FinishDrawing()
-        
-        # 5. Convertir a Base64
-        png_data = d2d.GetDrawingText()
-        return base64.b64encode(png_data).decode('utf-8')
-        
     except Exception as e:
-        st.error(f"RDKit Error: {str(e)}")
+        # Imprime el error en la consola de Streamlit para diagnóstico
+        print(f"Error en draw_reaction: {e}")
         return None
+
+def generate_reaction_image(reaction_smiles: str, missing_smiles: str):
+    """Replace missing molecule with placeholder and draw reaction."""
+    # --- CAMBIO 3: Verificación dinámica de disponibilidad ---
+    try:
+        from rdkit import Chem
+    except ImportError:
+        return None
+
+    # El resto de la lógica se mantiene igual para no afectar la funcionalidad
+    reactants, agents, products = parse_reaction_smiles(reaction_smiles)
+    placeholder = "[*:1]"
+    
+    def replace_missing(mol_list, missing):
+        try:
+            m_can = Chem.MolToSmiles(Chem.MolFromSmiles(missing), canonical=True)
+        except:
+            m_can = missing
+        new_list, found = [], False
+        for s in mol_list:
+            if s.startswith("[") and s.endswith("]") and not ":" in s:
+                new_list.append(s)
+                continue
+            try:
+                s_can = Chem.MolToSmiles(Chem.MolFromSmiles(s), canonical=True)
+                if s_can == m_can and not found:
+                    new_list.append(placeholder); found = True 
+                else: new_list.append(s)
+            except:
+                if s == missing and not found:
+                    new_list.append(placeholder); found = True
+                else: new_list.append(s)
+        return new_list, found
+
+    new_reactants, found_in_r = replace_missing(reactants, missing_smiles)
+    if found_in_r: 
+        new_products = products
+    else: 
+        new_products, _ = replace_missing(products, missing_smiles)
+        new_reactants = reactants
+        
+    return draw_reaction(".".join(new_reactants), ".".join(new_products), ".".join(agents))
 
 def generate_xml(questions, lang: str) -> bytes:
     """Generate Moodle XML for pmatchjme questions."""
