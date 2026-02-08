@@ -655,12 +655,6 @@ def render_reaction_app(lang=None):
             a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, key="a_area", height=100)
             p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, key="p_area", height=100)
             
-            # Sincronizamos manualmente lo que el usuario ha escrito en los campos
-            # (esto es clave para que no se pierda nada en reruns lentos de Cloud)
-            st.session_state.reactants_str = r_val
-            st.session_state.agents_str   = a_val
-            st.session_state.products_str = p_val
-            
             r_list = [s.strip() for s in r_val.split(',') if s.strip()]
             p_list = [s.strip() for s in p_val.split(',') if s.strip()]
             all_mols = r_list + p_list
