@@ -611,6 +611,7 @@ def render_reaction_app(lang=None):
             with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
+                # Usamos search_counter para limpiar este input tras añadir
                 s_name = c_s1.text_input(
                     texts["name_input_label"], 
                     key=f"search_input_{st.session_state.search_counter}", 
@@ -625,65 +626,77 @@ def render_reaction_app(lang=None):
                     else:
                         st.error(texts["name_error"].format(s_name))
             
-            # --- 4.2 SEARCH ACTIONS (Concatenation logic) ---
+            # --- 4.2 SEARCH ACTIONS (Fix para Cloud) ---
             if st.session_state.search_result:
                 res = st.session_state.search_result
                 st.info(f"{texts['smiles_found']}: `{res}`")
                 c1, c2, c3 = st.columns(3)
                 
-                def append_smiles(target_key, new_smiles):
+                # Esta función asegura que el cambio sea "atómico" para Streamlit
+                def update_and_refresh(target_key, new_smiles):
                     current_val = st.session_state.get(target_key, "")
                     if current_val.strip():
-                        st.session_state[target_key] = f"{current_val}, {new_smiles}".strip(", ")
+                        updated_val = f"{current_val}, {new_smiles}".strip(", ")
                     else:
-                        st.session_state[target_key] = new_smiles
-                    # Increment counter to force text_area refresh
+                        updated_val = new_smiles
+                    
+                    # Actualizamos el valor MAESTRO
+                    st.session_state[target_key] = updated_val
+                    # FORZAMOS que los widgets se regeneren cambiando su ID
                     if "widget_counter" not in st.session_state:
                         st.session_state.widget_counter = 0
                     st.session_state.widget_counter += 1
+                    
+                    # Limpiamos buscador
                     st.session_state.search_result = None
                     st.session_state.search_counter += 1 
                     st.rerun()
 
                 if c1.button(texts["add_to_reactants"], use_container_width=True):
-                    append_smiles("reactants_str", res)
+                    update_and_refresh("reactants_str", res)
                 if c2.button(texts["add_to_agents"], use_container_width=True):
-                    append_smiles("agents_str", res)
+                    update_and_refresh("agents_str", res)
                 if c3.button(texts["add_to_products"], use_container_width=True):
-                    append_smiles("products_str", res)
+                    update_and_refresh("products_str", res)
 
             st.write("---")
             
-            # --- 4.3 REACTION BUILDER ---
+            # --- 4.3 REACTION BUILDER (Widgets Dinámicos) ---
             if "widget_counter" not in st.session_state:
                 st.session_state.widget_counter = 0
                 
             col_r, col_a, col_p = st.columns(3)
 
-            # Usamos claves dinámicas vinculadas al contador para evitar borrados entre campos
-            st.session_state.reactants_str = col_r.text_area(
+            # Usamos el 'value' explícito y una key que cambia con widget_counter
+            # Esto obliga a Streamlit Cloud a renderizar el nuevo valor sí o sí.
+            r_val = col_r.text_area(
                 texts["reactants_label"], 
                 value=st.session_state.get("reactants_str", ""), 
-                key=f"r_area_{st.session_state.widget_counter}", 
+                key=f"r_area_dyn_{st.session_state.widget_counter}", 
                 height=100
             )
-            st.session_state.agents_str = col_a.text_area(
+            a_val = col_a.text_area(
                 texts["agents_label"], 
                 value=st.session_state.get("agents_str", ""), 
-                key=f"a_area_{st.session_state.widget_counter}", 
+                key=f"a_area_dyn_{st.session_state.widget_counter}", 
                 height=100
             )
-            st.session_state.products_str = col_p.text_area(
+            p_val = col_p.text_area(
                 texts["products_label"], 
                 value=st.session_state.get("products_str", ""), 
-                key=f"p_area_{st.session_state.widget_counter}", 
+                key=f"p_area_dyn_{st.session_state.widget_counter}", 
                 height=100
             )
             
-            # Procesamos listas directamente desde el session_state (evita error de variables no definidas)
-            r_list = [s.strip() for s in st.session_state.reactants_str.split(',') if s.strip()]
-            a_list = [s.strip() for s in st.session_state.agents_str.split(',') if s.strip()]
-            p_list = [s.strip() for s in st.session_state.products_str.split(',') if s.strip()]
+            # Sincronizamos el estado con lo que el usuario escriba manualmente
+            st.session_state.reactants_str = r_val
+            st.session_state.agents_str = a_val
+            st.session_state.products_str = p_val
+
+            # Procesamos listas para el resto de la lógica
+            r_list = [s.strip() for s in r_val.split(',') if s.strip()]
+            a_list = [s.strip() for s in a_val.split(',') if s.strip()]
+            p_list = [s.strip() for s in p_val.split(',') if s.strip()]
             all_mols = r_list + p_list
             
             col_m, col_n = st.columns(2)
@@ -707,12 +720,8 @@ def render_reaction_app(lang=None):
                     img = generate_reaction_image(rxn_sm, miss)
                     if img:
                         st.session_state.reaction_questions.append({
-                            'name': q_name, 
-                            'missing_smiles': miss, 
-                            'img_base64': img,
-                            'correct_feedback': 'Correct!', 
-                            'incorrect_feedback': '', 
-                            'normalized': False
+                            'name': q_name, 'missing_smiles': miss, 'img_base64': img,
+                            'correct_feedback': 'Correct!', 'incorrect_feedback': '', 'normalized': False
                         })
                         st.session_state.jsme_normalized = False
                         st.rerun()
@@ -721,18 +730,19 @@ def render_reaction_app(lang=None):
                 st.session_state.reactants_str = ""
                 st.session_state.agents_str = ""
                 st.session_state.products_str = ""
-                st.session_state.widget_counter += 1
+                st.session_state.widget_counter += 1 # Reset visual de los campos
                 st.rerun()
 
         with tab2:
             st.markdown(texts["bulk_info"])
             uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader_input")
             
-            if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True, key="bulk_proc_btn"):
+            if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True):
                 process_bulk_file(uploaded)
                 st.session_state.jsme_normalized = False
                 st.rerun()
             
+            # Mensajes persistentes de carga masiva
             if st.session_state.get('bulk_success_message'):
                 st.success(st.session_state.bulk_success_message)
             if st.session_state.get('bulk_error_logs'):
