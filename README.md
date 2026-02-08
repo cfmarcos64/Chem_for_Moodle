@@ -135,5 +135,5 @@ This project is licensed under the CC BY_NC_SA 4.0 License. See the [LICENSE](LI
 ## Contact
 Created by Carlos Fernández Marcos
 GitHub: @cfmarcos64
-Email: cfmarcos@unex.es
+Email: cfmarcos64@gmail.com
 Last updated: February 2026
