@@ -274,36 +274,39 @@ def draw_reaction(r_str, p_str, a_str=""):
     except:
         return None
 
-def generate_reaction_image(reaction_smiles: str, missing_smiles: str):
-    """Replace missing molecule with placeholder and draw reaction."""
+def generate_reaction_image(rxn_smiles, missing_smiles):
+    """Generates a reaction image, highlighting the missing molecule as a blank space."""
     if not RDKIT_AVAILABLE:
+        st.error("RDKit is not installed in this environment.")
         return None
-    reactants, agents, products = parse_reaction_smiles(reaction_smiles)
-    placeholder = "[*:1]"
-    def replace_missing(mol_list, missing):
-        try:
-            m_can = Chem.MolToSmiles(Chem.MolFromSmiles(missing), canonical=True)
-        except:
-            m_can = missing
-        new_list, found = [], False
-        for s in mol_list:
-            if s.startswith("[") and s.endswith("]") and not ":" in s:
-                new_list.append(s)
-                continue
-            try:
-                s_can = Chem.MolToSmiles(Chem.MolFromSmiles(s), canonical=True)
-                if s_can == m_can and not found:
-                    new_list.append(placeholder); found = True 
-                else: new_list.append(s)
-            except:
-                if s == missing and not found:
-                    new_list.append(placeholder); found = True
-                else: new_list.append(s)
-        return new_list, found
-    new_reactants, found_in_r = replace_missing(reactants, missing_smiles)
-    if found_in_r: new_products = products
-    else: new_products, _ = replace_missing(products, missing_smiles); new_reactants = reactants
-    return draw_reaction(".".join(new_reactants), ".".join(new_products), ".".join(agents))
+    
+    try:
+        # 1. Limpieza de SMILES
+        rxn_smiles = rxn_smiles.replace(" ", "")
+        
+        # 2. Crear la reacción
+        rxn = AllChem.ReactionFromSmarts(rxn_smiles, useSmiles=True)
+        if rxn is None:
+            st.error(f"Invalid Reaction SMILES: {rxn_smiles}")
+            return None
+
+        # 3. Configuración del dibujo
+        # Usamos un tamaño estándar que quepa bien en Moodle
+        d2d = rdMolDraw2D.MolDraw2DCairo(800, 300) 
+        opts = d2d.drawOptions()
+        opts.prepareMolsBeforeDrawing = True
+        
+        # 4. Intentar dibujar
+        d2d.DrawReaction(rxn)
+        d2d.FinishDrawing()
+        
+        # 5. Convertir a Base64
+        png_data = d2d.GetDrawingText()
+        return base64.b64encode(png_data).decode('utf-8')
+        
+    except Exception as e:
+        st.error(f"RDKit Error: {str(e)}")
+        return None
 
 def generate_xml(questions, lang: str) -> bytes:
     """Generate Moodle XML for pmatchjme questions."""
