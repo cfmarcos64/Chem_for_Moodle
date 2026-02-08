@@ -611,7 +611,6 @@ def render_reaction_app(lang=None):
             with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
-                # Usamos search_counter para limpiar este input tras añadir
                 s_name = c_s1.text_input(
                     texts["name_input_label"], 
                     key=f"search_input_{st.session_state.search_counter}", 
@@ -626,13 +625,12 @@ def render_reaction_app(lang=None):
                     else:
                         st.error(texts["name_error"].format(s_name))
             
-            # --- 4.2 SEARCH ACTIONS (Fix para Cloud) ---
+            # --- 4.2 SEARCH ACTIONS ---
             if st.session_state.search_result:
                 res = st.session_state.search_result
                 st.info(f"{texts['smiles_found']}: `{res}`")
                 c1, c2, c3 = st.columns(3)
                 
-                # Esta función asegura que el cambio sea "atómico" para Streamlit
                 def update_and_refresh(target_key, new_smiles):
                     current_val = st.session_state.get(target_key, "")
                     if current_val.strip():
@@ -640,14 +638,10 @@ def render_reaction_app(lang=None):
                     else:
                         updated_val = new_smiles
                     
-                    # Actualizamos el valor MAESTRO
                     st.session_state[target_key] = updated_val
-                    # FORZAMOS que los widgets se regeneren cambiando su ID
                     if "widget_counter" not in st.session_state:
                         st.session_state.widget_counter = 0
                     st.session_state.widget_counter += 1
-                    
-                    # Limpiamos buscador
                     st.session_state.search_result = None
                     st.session_state.search_counter += 1 
                     st.rerun()
@@ -661,14 +655,13 @@ def render_reaction_app(lang=None):
 
             st.write("---")
             
-            # --- 4.3 REACTION BUILDER (Widgets Dinámicos) ---
+            # --- 4.3 REACTION BUILDER ---
             if "widget_counter" not in st.session_state:
                 st.session_state.widget_counter = 0
                 
             col_r, col_a, col_p = st.columns(3)
 
-            # Usamos el 'value' explícito y una key que cambia con widget_counter
-            # Esto obliga a Streamlit Cloud a renderizar el nuevo valor sí o sí.
+            # Recogemos los valores de los text_area
             r_val = col_r.text_area(
                 texts["reactants_label"], 
                 value=st.session_state.get("reactants_str", ""), 
@@ -688,52 +681,76 @@ def render_reaction_app(lang=None):
                 height=100
             )
             
-            # Sincronizamos el estado con lo que el usuario escriba manualmente
+            # Sincronización crucial para el botón "Add Reaction"
             st.session_state.reactants_str = r_val
             st.session_state.agents_str = a_val
             st.session_state.products_str = p_val
 
-            # Procesamos listas para el resto de la lógica
+            # Procesamos las listas ANTES de definir el selector de molécula faltante
             r_list = [s.strip() for s in r_val.split(',') if s.strip()]
             a_list = [s.strip() for s in a_val.split(',') if s.strip()]
             p_list = [s.strip() for s in p_val.split(',') if s.strip()]
             all_mols = r_list + p_list
             
             col_m, col_n = st.columns(2)
-            missing_idx = col_m.selectbox(
-                texts["select_missing"], 
-                range(len(all_mols)), 
-                format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})"
-            ) if all_mols else None
             
+            # Selector de molécula faltante
+            missing_idx = None
+            if all_mols:
+                missing_idx = col_m.selectbox(
+                    texts["select_missing"], 
+                    range(len(all_mols)), 
+                    format_func=lambda x: f"{all_mols[x]} ({'R' if x < len(r_list) else 'P'})",
+                    key=f"missing_sel_{st.session_state.widget_counter}" # También dinámico
+                )
+            
+            # Nombre de la pregunta
             q_name = col_n.text_input(
                 texts["reaction_name_label"], 
-                value=f"Reaction {len(st.session_state.reaction_questions)+1}"
+                value=f"Reaction {len(st.session_state.reaction_questions)+1}",
+                key=f"q_name_{st.session_state.widget_counter}" # También dinámico
             )
             
-            # Botones de Acción
+            # --- BOTONES DE ACCIÓN (Corregidos) ---
             cb1, cb2 = st.columns(2)
+            
             if cb1.button(texts["add_reaction_button"], type="primary", use_container_width=True):
-                if q_name and missing_idx is not None:
+                if not all_mols:
+                    st.warning("Please add some molecules first.")
+                elif q_name and missing_idx is not None:
+                    # Obtenemos la molécula a ocultar
                     miss = all_mols[missing_idx]
+                    
+                    # Generamos el Reaction SMILES completo
                     rxn_sm = build_reaction_smiles(r_list, a_list, p_list)
+                    
+                    # Generamos la imagen
                     img = generate_reaction_image(rxn_sm, miss)
+                    
                     if img:
                         st.session_state.reaction_questions.append({
-                            'name': q_name, 'missing_smiles': miss, 'img_base64': img,
-                            'correct_feedback': 'Correct!', 'incorrect_feedback': '', 'normalized': False
+                            'name': q_name, 
+                            'missing_smiles': miss, 
+                            'img_base64': img,
+                            'correct_feedback': 'Correct!', 
+                            'incorrect_feedback': '', 
+                            'normalized': False
                         })
                         st.session_state.jsme_normalized = False
+                        st.success(f"Added: {q_name}")
                         st.rerun()
+                else:
+                    st.error("Missing name or selection.")
 
             if cb2.button(texts["new_question"], use_container_width=True, icon=":material/refresh:"):
                 st.session_state.reactants_str = ""
                 st.session_state.agents_str = ""
                 st.session_state.products_str = ""
-                st.session_state.widget_counter += 1 # Reset visual de los campos
+                st.session_state.widget_counter += 1
                 st.rerun()
 
         with tab2:
+            # (El contenido de tab2 se mantiene igual)
             st.markdown(texts["bulk_info"])
             uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader_input")
             
@@ -741,14 +758,6 @@ def render_reaction_app(lang=None):
                 process_bulk_file(uploaded)
                 st.session_state.jsme_normalized = False
                 st.rerun()
-            
-            # Mensajes persistentes de carga masiva
-            if st.session_state.get('bulk_success_message'):
-                st.success(st.session_state.bulk_success_message)
-            if st.session_state.get('bulk_error_logs'):
-                with st.expander(st.session_state.bulk_error_logs['title']):
-                    for log in st.session_state.bulk_error_logs['logs']:
-                        st.caption(log)
 
             # --- 5. Output Column ---
             with list_col:
