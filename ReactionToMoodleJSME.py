@@ -234,8 +234,7 @@ def normalize_text(text):
     return text
 
 def draw_reaction(r_str, p_str, a_str=""):
-    """Generate base64 reaction image using RDKit."""
-    # --- CAMBIO 1: Importación dinámica para asegurar detección en Cloud ---
+    """Generate base64 reaction image using RDKit Cairo backend."""
     try:
         from rdkit import Chem
         from rdkit.Chem import AllChem
@@ -243,6 +242,12 @@ def draw_reaction(r_str, p_str, a_str=""):
     except ImportError:
         return None
 
+    # Limpieza crítica: RDKit falla si hay espacios o comas mal puestas
+    r_str = r_str.replace(" ", "").strip(",")
+    p_str = p_str.replace(" ", "").strip(",")
+    a_str = a_str.replace(" ", "").strip(",")
+    
+    # Procesar agentes especiales [Text]
     agents_list = a_str.split('.') if a_str else []
     final_agents = []
     display_agent_texts = []
@@ -250,26 +255,31 @@ def draw_reaction(r_str, p_str, a_str=""):
     
     for a in agents_list:
         if a.startswith("[") and a.endswith("]"):
-            # Usamos normalize_text si existe en tu script, si no, lo tratamos como string
-            text = a[1:-1] 
+            text = a[1:-1]
             display_agent_texts.append(text)
             final_agents.append(f"[*:{text_counter}]")
             text_counter += 1
         else:
             final_agents.append(a)
             
+    # Construir SMARTS de reacción: Reactivos > Agentes > Productos
     rxn_smarts = f"{r_str}>{'.'.join(final_agents)}>{p_str}"
     
     try:
         rxn = AllChem.ReactionFromSmarts(rxn_smarts, useSmiles=True)
-        # --- CAMBIO 2: Uso explícito de Cairo para compatibilidad con Linux ---
+        if rxn is None:
+            # Si falla, intentamos avisar qué SMILES dio el problema
+            st.error(f"SMILES inválido detectado: {rxn_smarts}")
+            return None
+
+        # Motor Cairo para Streamlit Cloud
         d2d = rdMolDraw2D.MolDraw2DCairo(900, 350)
         opts = d2d.drawOptions()
         opts.fixedBondLength = 40.0
         
         missing_symbol = " { ? } "
         
-        # Lógica de mapeo de átomos para etiquetas y molécula oculta
+        # Aplicar etiquetas y placeholder de incógnita
         for role_list in [rxn.GetReactants(), rxn.GetAgents(), rxn.GetProducts()]:
             for mol in role_list:
                 for atom in mol.GetAtoms():
@@ -287,8 +297,7 @@ def draw_reaction(r_str, p_str, a_str=""):
         d2d.FinishDrawing()
         return base64.b64encode(d2d.GetDrawingText()).decode('utf-8')
     except Exception as e:
-        # Imprime el error en la consola de Streamlit para diagnóstico
-        print(f"Error en draw_reaction: {e}")
+        st.error(f"Error de RDKit al dibujar: {e}")
         return None
 
 def generate_reaction_image(reaction_smiles: str, missing_smiles: str):
