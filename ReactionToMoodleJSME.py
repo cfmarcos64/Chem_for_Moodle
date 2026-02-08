@@ -591,6 +591,12 @@ def process_bulk_file(uploaded_file):
 def render_reaction_app(lang=None):
     """Core function to render the Reaction Generator app."""
     
+    # --- PARCHE DE COMPATIBILIDAD ---
+    # Si la herramienta se ejecuta dentro de la suite y falta esta variable, 
+    # la inicializamos para evitar el AttributeError.
+    if "lang_toggle" not in st.session_state:
+        st.session_state.lang_toggle = False
+        
     # --- 1. Initialization ---
     if "reaction_questions" not in st.session_state:
         st.session_state.reaction_questions = []
