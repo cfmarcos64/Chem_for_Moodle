@@ -58,7 +58,7 @@ There are two primary ways to access and use this tool:
 
 The application is deployed publicly and can be accessed directly through this link:
 
-👉 https://create-pattern-match-with-molecular-editor-questions-for-moodle.streamlit.app/
+👉 https://chemformoodle.streamlit.app/
 
 ### Option 2: Run Locally (Requires Python and Node.js)
 
@@ -66,7 +66,7 @@ To run the application in local development mode, you must run two processes sim
 
 1. Clone the Repository and Install Python Dependencies:
 
-git clone https://github.com/cfmarcos64/Create-pattern-match-with-molecular-editor-questions-for-Moodle
+git clone https://github.com/cfmarcos64/Chem_for_Moodle
 
 cd [repository-name]
 
