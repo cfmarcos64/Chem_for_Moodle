@@ -76,6 +76,7 @@ TEXTS = {
         "jsme_success": "SUCCESS: **{} of {}** normalized correctly",
         "json_decode_error": "Error interpreting JSME editor response (invalid JSON format)",
         "missing_mol_warning": "The selected missing molecule is not in the reaction",
+        "mol_preview_error": "Could not preview the structure.",
         "name_error": "Could not find SMILES for '{}'.",
         "name_input_label": "Compound name:",
         "name_warning": "Please, introduce a name for the question",
@@ -146,6 +147,7 @@ TEXTS = {
         "jsme_success": "ÉXITO: **{} de {}** normalizadas correctamente",
         "json_decode_error": "Error al interpretar la respuesta del editor JSME (formato JSON inválido)",
         "missing_mol_warning": "La molécula seleccionada como faltante no aparece en reactivos ni productos.",
+        "mol_preview_error": "No se pudo previsualizar la estructura.",
         "name_error": "No se encontró SMILES para '{}'.",
         "name_input_label": "Nombre del compuesto:",
         "name_warning": "Por favor, introduce un nombre para la pregunta.",
@@ -622,20 +624,38 @@ def render_reaction_app(lang=None):
             # --- Action buttons for Search Results ---
             if st.session_state.search_result:
                 res = st.session_state.search_result
-                st.info(f"SMILES: `{res}`")
+                
+                # Create RDKit Mol object for drawing
+                from rdkit import Chem
+                mol = Chem.MolFromSmiles(res)
+                
+                if mol:
+                    # Show info and image in two columns
+                    col_info, col_img = st.columns([2, 1])
+                    
+                    with col_info:
+                        st.info(f"{texts['smiles_found']}: `{res}`")
+                    
+                    with col_img:
+                        # Generate image
+                        try:
+                            mol_img = draw_mol_consistent(mol)
+                            st.image(mol_img, use_container_width=False, width=150)
+                        except Exception:
+                            st.caption(texts["mol_preview_error"])
+    
+                # Buttons to add components to reaction
                 c1, c2, c3 = st.columns(3)
                 
-                def add_to(key):
-                    current = st.session_state.get(key, "")
-                    if current: st.session_state[key] = f"{current}, {res}"
-                    else: st.session_state[key] = res
+                def add_smiles(target):
+                    curr = st.session_state.get(target, "")
+                    st.session_state[target] = f"{curr}, {res}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1
                     st.rerun()
     
-                if c1.button(texts["add_to_reactants"]): add_to("reactants_str")
-                if c2.button(texts["add_to_agents"]): add_to("agents_str")
-                if c3.button(texts["add_to_products"]): add_to("products_str")
+                if c1.button(texts["add_to_reactants"], use_container_width=True): add_smiles("reactants_str")
+                if c2.button(texts["add_to_agents"], use_container_width=True): add_smiles("agents_str")
+                if c3.button(texts["add_to_products"], use_container_width=True): add_smiles("products_str")
     
             st.write("---")
             
