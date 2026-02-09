@@ -20,16 +20,16 @@ import uuid
 # 1. MODULE AVAILABILITY CHECKS
 # ===================================================================
 
-RDKIT_AVAILABLE = False
 try:
     from rdkit import Chem
     from rdkit.Chem import Draw, rdDepictor, AllChem
     from rdkit.Chem.Draw import rdMolDraw2D
     RDKIT_AVAILABLE = True
-except Exception as e:
-    # Esto nos dirá en la consola de Streamlit qué está fallando realmente
-    print(f"DEBUG: Error importing RDKit: {e}")
+except ImportError:
     Chem = None
+    rdDepictor = None
+    rdMolDraw2D = None
+    RDKIT_AVAILABLE = False
 
 PANDAS_AVAILABLE = True
 NUMPY_AVAILABLE = True if 'np' in globals() else False
@@ -234,14 +234,40 @@ def normalize_text(text):
     return text
 
 def draw_reaction(r_str, p_str, a_str=""):
-    from rdkit.Chem import AllChem
-    from rdkit.Chem.Draw import rdMolDraw2D
-    
-    rxn_smarts = f"{r_str}>{a_str}>{p_str}"
+    """Generate base64 reaction image using RDKit."""
+    if not RDKIT_AVAILABLE or not AllChem:
+        return None
+    agents_list = a_str.split('.') if a_str else []
+    final_agents = []
+    display_agent_texts = []
+    text_counter = 2
+    for a in agents_list:
+        if a.startswith("[") and a.endswith("]"):
+            text = normalize_text(a[1:-1])
+            display_agent_texts.append(text)
+            final_agents.append(f"[*:{text_counter}]")
+            text_counter += 1
+        else:
+            final_agents.append(a)
+    rxn_smarts = f"{r_str}>{'.'.join(final_agents)}>{p_str}"
     try:
         rxn = AllChem.ReactionFromSmarts(rxn_smarts, useSmiles=True)
-        # Cairo es lo único "extra" que dejamos porque es vital en la nube
-        d2d = rdMolDraw2D.MolDraw2DCairo(800, 300)
+        d2d = rdMolDraw2D.MolDraw2DCairo(900, 350)
+        opts = d2d.drawOptions()
+        opts.fixedBondLength = 40.0
+        missing_symbol = " { ? } "
+        for role_list in [rxn.GetReactants(), rxn.GetAgents(), rxn.GetProducts()]:
+            for mol in role_list:
+                for atom in mol.GetAtoms():
+                    map_num = atom.GetAtomMapNum()
+                    if map_num == 1:
+                        atom.SetProp("atomLabel", missing_symbol)
+                        atom.SetAtomMapNum(0)
+                    elif map_num >= 2:
+                        idx = map_num - 2
+                        if idx < len(display_agent_texts):
+                            atom.SetProp("atomLabel", display_agent_texts[idx])
+                        atom.SetAtomMapNum(0)
         d2d.DrawReaction(rxn)
         d2d.FinishDrawing()
         return base64.b64encode(d2d.GetDrawingText()).decode('utf-8')
@@ -250,16 +276,10 @@ def draw_reaction(r_str, p_str, a_str=""):
 
 def generate_reaction_image(reaction_smiles: str, missing_smiles: str):
     """Replace missing molecule with placeholder and draw reaction."""
-    # --- CAMBIO 3: Verificación dinámica de disponibilidad ---
-    try:
-        from rdkit import Chem
-    except ImportError:
+    if not RDKIT_AVAILABLE:
         return None
-
-    # El resto de la lógica se mantiene igual para no afectar la funcionalidad
     reactants, agents, products = parse_reaction_smiles(reaction_smiles)
     placeholder = "[*:1]"
-    
     def replace_missing(mol_list, missing):
         try:
             m_can = Chem.MolToSmiles(Chem.MolFromSmiles(missing), canonical=True)
@@ -280,14 +300,9 @@ def generate_reaction_image(reaction_smiles: str, missing_smiles: str):
                     new_list.append(placeholder); found = True
                 else: new_list.append(s)
         return new_list, found
-
     new_reactants, found_in_r = replace_missing(reactants, missing_smiles)
-    if found_in_r: 
-        new_products = products
-    else: 
-        new_products, _ = replace_missing(products, missing_smiles)
-        new_reactants = reactants
-        
+    if found_in_r: new_products = products
+    else: new_products, _ = replace_missing(products, missing_smiles); new_reactants = reactants
     return draw_reaction(".".join(new_reactants), ".".join(new_products), ".".join(agents))
 
 def generate_xml(questions, lang: str) -> bytes:
@@ -548,12 +563,6 @@ def process_bulk_file(uploaded_file):
 def render_reaction_app(lang=None):
     """Core function to render the Reaction Generator app."""
     
-    # --- PARCHE DE COMPATIBILIDAD ---
-    # Si la herramienta se ejecuta dentro de la suite y falta esta variable, 
-    # la inicializamos para evitar el AttributeError.
-    if "lang_toggle" not in st.session_state:
-        st.session_state.lang_toggle = False
-        
     # --- 1. Initialization ---
     if "reaction_questions" not in st.session_state:
         st.session_state.reaction_questions = []
@@ -571,6 +580,8 @@ def render_reaction_app(lang=None):
         st.session_state.search_result = None
     if "search_counter" not in st.session_state:
         st.session_state.search_counter = 0
+    if "widget_counter" not in st.session_state:
+        st.session_state.widget_counter = 0
 
     # --- 2. Language Logic ---
     if lang:
@@ -595,57 +606,64 @@ def render_reaction_app(lang=None):
 
     # --- 4. Input Column ---
     with input_col:
-        if "lang_toggle" not in st.session_state: st.session_state.lang_toggle = False
-        
         tab1, tab2 = st.tabs([texts["tab_manual"], texts["tab_bulk"]])
         
         with tab1:
-            # --- BUSCADOR ---
-            with st.form("search_form"):
+            # SEARCH FORM (With key counter to allow clearing)
+            with st.form("search_form", clear_on_submit=False):
                 st.subheader(texts["search_title"])
                 c_s1, c_s2 = st.columns([3, 1])
-                s_name = c_s1.text_input(texts["name_input_label"], key=f"s_in_{st.session_state.search_counter}", label_visibility="collapsed")
-                if c_s2.form_submit_button(texts["search_button"], use_container_width=True):
+                s_name = c_s1.text_input(
+                    texts["name_input_label"], 
+                    key=f"search_input_{st.session_state.search_counter}", 
+                    label_visibility="collapsed"
+                )
+                s_btn = c_s2.form_submit_button(texts["search_button"], use_container_width=True)
+                
+                if s_btn and s_name:
                     res = get_smiles_from_name(s_name)
-                    if res: st.session_state.search_result = res
-                    else: st.error(texts["name_error"].format(s_name))
+                    if res:
+                        st.session_state.search_result = res
+                    else:
+                        st.error(texts["name_error"].format(s_name))
             
-            # --- BOTONES PARA AÑADIR ---
+            # Action buttons for Search Results (Clears search after adding)
             if st.session_state.search_result:
                 res = st.session_state.search_result
-                st.info(f"SMILES: `{res}`")
+                st.info(f"{texts['smiles_found']}: `{res}`")
                 c1, c2, c3 = st.columns(3)
                 
-                def add_to(key):
-                    current = st.session_state.get(key, "")
-                    if current: st.session_state[key] = f"{current}, {res}"
-                    else: st.session_state[key] = res
+                if c1.button(texts["add_to_reactants"], use_container_width=True):
+                    st.session_state.reactants_str = f"{st.session_state.reactants_str}, {res}".strip(", ")
                     st.session_state.search_result = None
-                    st.session_state.search_counter += 1
+                    st.session_state.search_counter += 1 # Clears text input
                     st.rerun()
-    
-                if c1.button(texts["add_to_reactants"]): add_to("reactants_str")
-                if c2.button(texts["add_to_agents"]): add_to("agents_str")
-                if c3.button(texts["add_to_products"]): add_to("products_str")
-    
+                if c2.button(texts["add_to_agents"], use_container_width=True):
+                    st.session_state.agents_str = f"{st.session_state.agents_str}, {res}".strip(", ")
+                    st.session_state.search_result = None
+                    st.session_state.search_counter += 1 # Clears text input
+                    st.rerun()
+                if c3.button(texts["add_to_products"], use_container_width=True):
+                    st.session_state.products_str = f"{st.session_state.products_str}, {res}".strip(", ")
+                    st.session_state.search_result = None
+                    st.session_state.search_counter += 1 # Clears text input
+                    st.rerun()
+
             st.write("---")
             
-            # --- CAMPOS DE TEXTO (REACTION BUILDER) ---
+            # REACTION BUILDER
             col_r, col_a, col_p = st.columns(3)
+            r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.reactants_str, key="r_area", height=100)
+            a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, key="a_area", height=100)
+            p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, key="p_area", height=100)
             
-            # IMPORTANTE: value debe estar vinculado al session_state
-            r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.reactants_str, height=100)
-            a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, height=100)
-            p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, height=100)
-            
-            # Guardamos lo que el usuario escribe a mano
+            # Sincronizamos manualmente lo que el usuario ha escrito en los campos
+            # (esto es clave para que no se pierda nada en reruns lentos de Cloud)
             st.session_state.reactants_str = r_val
-            st.session_state.agents_str = a_val
+            st.session_state.agents_str   = a_val
             st.session_state.products_str = p_val
-    
-            # Listas para el selector
+            
             r_list = [s.strip() for s in r_val.split(',') if s.strip()]
-            a_list = [s.strip() for s in a_val.split(',') if s.strip()]
             p_list = [s.strip() for s in p_val.split(',') if s.strip()]
             all_mols = r_list + p_list
             
@@ -658,27 +676,46 @@ def render_reaction_app(lang=None):
             
             q_name = col_n.text_input(texts["reaction_name_label"], value=f"Reaction {len(st.session_state.reaction_questions)+1}")
             
-            # --- BOTÓN FINAL ---
+            # Action Buttons: Add and New Question
             cb1, cb2 = st.columns(2)
             if cb1.button(texts["add_reaction_button"], type="primary", use_container_width=True):
                 if q_name and missing_idx is not None:
                     miss = all_mols[missing_idx]
-                    rxn_smiles = f"{'.'.join(r_list)}>{'.'.join(a_list)}>{'.'.join(p_list)}"
-                    img = generate_reaction_image(rxn_smiles, miss)
-                    
+                    rxn_sm = build_reaction_smiles(r_list, [s.strip() for s in a_val.split(',') if s.strip()], p_list)
+                    img = generate_reaction_image(rxn_sm, miss)
                     if img:
                         st.session_state.reaction_questions.append({
                             'name': q_name, 'missing_smiles': miss, 'img_base64': img,
                             'correct_feedback': 'Correct!', 'incorrect_feedback': '', 'normalized': False
                         })
+                        st.session_state.jsme_normalized = False
                         st.rerun()
-                    else:
-                        st.error("Error al generar imagen.")
-    
-            if cb2.button(texts["new_question"], use_container_width=True):
-                st.session_state.reactants_str = ""; st.session_state.agents_str = ""; st.session_state.products_str = ""
+
+            if cb2.button(texts["new_question"], use_container_width=True, icon=":material/refresh:"):
+                st.session_state.reactants_str = ""
+                st.session_state.agents_str = ""
+                st.session_state.products_str = ""
+                st.rerun()
+
+        with tab2:
+            st.markdown(texts["bulk_info"])
+            uploaded = st.file_uploader(texts["upload_file_label"], type=['xlsx', 'csv'], key="bulk_uploader_input")
+            
+            if uploaded and st.button(texts["process_bulk_button"], type="primary", use_container_width=True, key="bulk_proc_btn"):
+                # Call the processing function
+                process_bulk_file(uploaded)
+                # Reset normalization status as new questions are added
+                st.session_state.jsme_normalized = False
                 st.rerun()
             
+            # Display persistent messages from session state
+            if st.session_state.get('bulk_success_message'):
+                st.success(st.session_state.bulk_success_message)
+            if st.session_state.get('bulk_error_logs'):
+                with st.expander(st.session_state.bulk_error_logs['title']):
+                    for log in st.session_state.bulk_error_logs['logs']:
+                        st.caption(log)
+
             # --- 5. Output Column ---
             with list_col:
                 st.subheader(texts["added_questions_title"])
