@@ -593,10 +593,11 @@ def render_reaction_app(lang=None):
 
     input_col, list_col = st.columns([1.8, 1.2])
 
-    # --- 4. Input Column (Versión Simplificada y Funcional) ---
+    # --- 4. Input Column (Versión Recapitulada y Corregida) ---
 with input_col:
-    # 1. Parche de compatibilidad inicial
-    if "lang_toggle" not in st.session_state: st.session_state.lang_toggle = False
+    # Inicialización de seguridad para la suite maestra
+    if "lang_toggle" not in st.session_state: 
+        st.session_state.lang_toggle = False
     
     tab1, tab2 = st.tabs([texts["tab_manual"], texts["tab_bulk"]])
     
@@ -606,10 +607,15 @@ with input_col:
             st.subheader(texts["search_title"])
             c_s1, c_s2 = st.columns([3, 1])
             s_name = c_s1.text_input(texts["name_input_label"], key="search_input", label_visibility="collapsed")
-            if展现_btn := c_s2.form_submit_button(texts["search_button"], use_container_width=True):
+            # Corregido: Variable limpia 's_btn'
+            s_btn = c_s2.form_submit_button(texts["search_button"], use_container_width=True)
+            
+            if s_btn and s_name:
                 res = get_smiles_from_name(s_name)
-                if res: st.session_state.search_result = res
-                else: st.error(texts["name_error"].format(s_name))
+                if res: 
+                    st.session_state.search_result = res
+                else: 
+                    st.error(texts["name_error"].format(s_name))
         
         # --- ACCIONES DE BÚSQUEDA ---
         if st.session_state.search_result:
@@ -617,39 +623,38 @@ with input_col:
             st.info(f"{texts['smiles_found']}: `{res}`")
             c1, c2, c3 = st.columns(3)
             
-            # Función simple de pegado
             def add_smiles(target):
                 curr = st.session_state.get(target, "")
+                # Añadimos a la cadena existente
                 st.session_state[target] = f"{curr}, {res}".strip(", ")
                 st.session_state.search_result = None
                 st.rerun()
 
-            if c1.button(texts["add_to_reactants"]): add_smiles("reactants_str")
-            if c2.button(texts["add_to_agents"]): add_smiles("agents_str")
-            if c3.button(texts["add_to_products"]): add_smiles("products_str")
+            if c1.button(texts["add_to_reactants"], use_container_width=True): add_smiles("reactants_str")
+            if c2.button(texts["add_to_agents"], use_container_width=True): add_smiles("agents_str")
+            if c3.button(texts["add_to_products"], use_container_width=True): add_smiles("products_str")
 
         st.write("---")
         
-        # --- REACTION BUILDER (Vuelta a la estructura original) ---
+        # --- REACTION BUILDER ---
         col_r, col_a, col_p = st.columns(3)
         
-        # Leemos y escribimos directamente en session_state
+        # Los text_area leen de las variables que el buscador actualiza
         r_val = col_r.text_area(texts["reactants_label"], value=st.session_state.reactants_str, key="r_area", height=100)
         a_val = col_a.text_area(texts["agents_label"], value=st.session_state.agents_str, key="a_area", height=100)
         p_val = col_p.text_area(texts["products_label"], value=st.session_state.products_str, key="p_area", height=100)
         
-        # Sincronizamos
+        # Sincronizamos manualmente para asegurar que el botón Add Reaction lea lo último
         st.session_state.reactants_str = r_val
         st.session_state.agents_str = a_val
         st.session_state.products_str = p_val
 
-        # Listas para procesar
+        # Procesamiento de listas
         r_list = [s.strip() for s in r_val.split(',') if s.strip()]
         a_list = [s.strip() for s in a_val.split(',') if s.strip()]
         p_list = [s.strip() for s in p_val.split(',') if s.strip()]
         all_mols = r_list + p_list
         
-        # Selector y Nombre
         col_m, col_n = st.columns(2)
         missing_idx = col_m.selectbox(
             texts["select_missing"], 
@@ -659,15 +664,14 @@ with input_col:
         
         q_name = col_n.text_input(texts["reaction_name_label"], value=f"Reaction {len(st.session_state.reaction_questions)+1}")
         
-        # BOTÓN AÑADIR (El corazón del problema)
+        # --- BOTONES DE ACCIÓN ---
         cb1, cb2 = st.columns(2)
         if cb1.button(texts["add_reaction_button"], type="primary", use_container_width=True):
             if q_name and missing_idx is not None:
                 miss = all_mols[missing_idx]
-                # Construimos el SMILES de la reacción manualmente para evitar fallos de parseo
+                # Formato RDKit simple: R1.R2>A1.A2>P1.P2
                 rxn_smiles = f"{'.'.join(r_list)}>{'.'.join(a_list)}>{'.'.join(p_list)}"
                 
-                # Llamada directa a la generación de imagen
                 img = generate_reaction_image(rxn_smiles, miss)
                 
                 if img:
@@ -677,11 +681,14 @@ with input_col:
                     })
                     st.rerun()
                 else:
-                    st.error("Error: RDKit no pudo generar la imagen. Revisa los SMILES.")
+                    st.error("Error al generar imagen. Revisa los SMILES.")
 
-        if cb2.button(texts["new_question"], use_container_width=True):
-            st.session_state.reactants_str = ""; st.session_state.agents_str = ""; st.session_state.products_str = ""
+        if cb2.button(texts["new_question"], use_container_width=True, icon=":material/refresh:"):
+            st.session_state.reactants_str = ""
+            st.session_state.agents_str = ""
+            st.session_state.products_str = ""
             st.rerun()
+            
             # --- 5. Output Column ---
             with list_col:
                 st.subheader(texts["added_questions_title"])
