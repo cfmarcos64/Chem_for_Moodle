@@ -647,15 +647,21 @@ def render_reaction_app(lang=None):
                 # Buttons to add components to reaction
                 c1, c2, c3 = st.columns(3)
                 
-                def add_smiles(target):
-                    curr = st.session_state.get(target, "")
-                    st.session_state[target] = f"{curr}, {res}".strip(", ")
+                if c1.button(texts["add_to_reactants"], use_container_width=True):
+                    st.session_state.reactants_str = f"{st.session_state.reactants_str}, {res}".strip(", ")
                     st.session_state.search_result = None
+                    st.session_state.search_counter += 1 # Clears text input
                     st.rerun()
-    
-                if c1.button(texts["add_to_reactants"], use_container_width=True): add_smiles("reactants_str")
-                if c2.button(texts["add_to_agents"], use_container_width=True): add_smiles("agents_str")
-                if c3.button(texts["add_to_products"], use_container_width=True): add_smiles("products_str")
+                if c2.button(texts["add_to_agents"], use_container_width=True):
+                    st.session_state.agents_str = f"{st.session_state.agents_str}, {res}".strip(", ")
+                    st.session_state.search_result = None
+                    st.session_state.search_counter += 1 # Clears text input
+                    st.rerun()
+                if c3.button(texts["add_to_products"], use_container_width=True):
+                    st.session_state.products_str = f"{st.session_state.products_str}, {res}".strip(", ")
+                    st.session_state.search_result = None
+                    st.session_state.search_counter += 1 # Clears text input
+                    st.rerun()
     
             st.write("---")
             
