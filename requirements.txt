@@ -7,3 +7,4 @@ pubchempy>=0.4
 pillow>=9.0            # PIL for image manipulation
 numpy>=1.23
 matplotlib>=3.7
+re
