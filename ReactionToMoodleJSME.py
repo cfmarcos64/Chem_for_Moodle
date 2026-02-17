@@ -69,11 +69,7 @@ TEXTS = {
         "file_read_error": "Error reading file: {}",
         "image_warning": "The reaction image couldn't be generated",
         "intro": "Set up a chemical reaction by hiding one of its components (reactant, product, or agents). "
-                 "The student must identify the missing part and draw it in the JSME editor to complete the sequence. "
-                 "Generic groups are supported and must be placed within SMILES codes between double dollar signs (\$\$R\$\$, \$\$CoAS\$\$), "
-                 "although this is not recommended for the missing molecule, as normalization is not guaranteed. "
-                 " Texts in brackets can be added directly into the reactant, agent, or product fields, "
-                 "for example, to indicate reaction conditions or catalysts, ([acid], [NADH], [THF / reflux]).",
+                 "The student must identify the missing part and draw it in the JSME editor to complete the sequence.",
         "invalid_smiles_preview": "Invalid SMILES structure",
         "is_normalized": "✅ Normalized",
         "is_pending": "⚠️ Pending normalization",
@@ -136,12 +132,8 @@ TEXTS = {
         "download_xml_button": "Descargar XML",
         "file_read_error": "Error al leer el archivo: {}",
         "image_warning": "No se pudo generar la imagen de la reacción.",
-        "intro": "Configura una reacción química ocultando uno de sus componentes (reactivo o producto). "
-                 "El alumno deberá identificar la parte faltante y dibujarla en el editor JSME para completar la secuencia. "
-                 "Se admiten grupos genéricos, que deben ponerse en los códigos SMILES entre signos de doble dólar (\$\$R\$\$, \$\$CoAS\$\$), "
-                 "aunque no se recomienda en la molécula faltante, porque la normalización no está garantizada. "
-                 "Se pueden añadir textos entre corchetes directamente en los campos de reactivos, agentes o productos, "
-                 "por ejemplo para indicar condiciones de reacción o catalizadores ([ácido], [NADH], [THF / reflujo]).",
+        "intro": "Configura una reacción química ocultando uno de sus componentes (reactivo, producto o agentes). "
+                 "El alumno deberá identificar la parte faltante y dibujarla en el editor JSME para completar la secuencia.",
         "invalid_smiles_preview": "Estructura SMILES no válida",
         "is_normalized": "✅ Normalizada",
         "is_pending": "⚠️ Pendiente de normalizar",
@@ -233,7 +225,8 @@ def parse_reaction_smiles(reaction_smiles: str) -> tuple:
 
 def normalize_text(text: str) -> str:
     """Replace accented and special characters for RDKit Cairo font compatibility.
-    Applied to all [text] agents before they are passed to the drawing engine."""
+    Applied to all atom labels extracted from $$label$$ groups and [text] agents
+    before they are passed to the drawing engine."""
     replacements = {
         'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ñ': 'n', 'º': 'deg',
     }
@@ -456,6 +449,25 @@ def name_to_smiles(name: str) -> str | None:
 def build_reaction_smiles(reactants: list, agents: list, products: list) -> str:
     """Combine reactant, agent, and product SMILES lists into a reaction SMILES string."""
     return f"{'.'.join(reactants)}>{'.'.join(agents)}>{'.'.join(products)}"
+
+
+def prepare_mol_with_labels(s: str):
+    """Parse a SMILES string that may contain $$label$$ groups, replacing them
+    with [*] wildcard atoms whose display label is set via atomLabel (not atomNote),
+    so that RDKit renders the label text in place of the wildcard symbol.
+    Returns None if RDKit is unavailable or the SMILES is invalid."""
+    if not RDKIT_AVAILABLE:
+        return None
+    labels = re.findall(r"\$\$\s*([^$]+?)\s*\$\$", str(s))
+    clean_smiles = re.sub(r"\$\$\s*([^$]+?)\s*\$\$", "[*]", str(s))
+    mol = Chem.MolFromSmiles(clean_smiles)
+    if mol and labels:
+        wildcard_idx = 0
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() == "*" and wildcard_idx < len(labels):
+                atom.SetProp("atomLabel", labels[wildcard_idx])
+                wildcard_idx += 1
+    return mol
 
 
 def start_jsme_normalization_loop():
@@ -738,10 +750,12 @@ def render_reaction_app(lang: str = None):
                 )
                 if c_s2.form_submit_button(texts["search_button"], use_container_width=True):
                     if "$$" in s_name:
-                        # Strings with $$ are generic group labels — use directly
+                        # Strings with $$ are generic group labels — use directly as SMILES
                         st.session_state.search_result = s_name.strip()
                     else:
-                        res = get_smiles_from_name(s_name)
+                        # name_to_smiles validates SMILES directly before calling NCI CIR,
+                        # guarding against cases where $$ may have been stripped by the browser
+                        res = name_to_smiles(s_name)
                         if res:
                             st.session_state.search_result = res
                         else:
@@ -750,20 +764,6 @@ def render_reaction_app(lang: str = None):
             # Search result display and add-to-reaction buttons
             if st.session_state.search_result:
                 res = st.session_state.search_result
-
-                def prepare_mol_with_labels(s: str):
-                    """Parse a SMILES string that may contain $$label$$ groups,
-                    replacing them with [*] wildcard atoms annotated with the label text."""
-                    labels = re.findall(r"\$\$\s*([^$]+?)\s*\$\$", str(s))
-                    clean_smiles = re.sub(r"\$\$\s*([^$]+?)\s*\$\$", "[*]", str(s))
-                    mol = Chem.MolFromSmiles(clean_smiles)
-                    if mol and labels:
-                        wildcard_idx = 0
-                        for atom in mol.GetAtoms():
-                            if atom.GetSymbol() == "*" and wildcard_idx < len(labels):
-                                atom.SetProp("atomNote", labels[wildcard_idx])
-                                wildcard_idx += 1
-                    return mol
 
                 mol = prepare_mol_with_labels(res)
                 if mol:
