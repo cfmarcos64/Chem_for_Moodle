@@ -26,23 +26,25 @@ except ImportError:
 TEXTS = {
     "en": {
         "add_to_list": "Add to list",
-        "bulk_note": "Upload a .csv or .xlsx with a **'name'** column (API lookup) and, optionally, a **'nombre'** column (Moodle label).",
+        "bulk_note": "Upload a .csv or .xlsx with a **'name'** column (English name or SMILES, used for the API lookup and the question body) and, optionally, a **'question_label'** column (used as the question bank label).",
         "clear_all": "Clear all",
-        "column_error": "🚨 File must contain at least a 'name' or 'nombre' column.",
-        "custom_question_name": "Question Label (e.g. Aspirin):",
+        "column_error": "🚨 File must contain at least a 'name' column.",
+        "custom_question_name": "Question Label (optional, e.g. Question 1):",
         "delete_question": "Delete question",
         "download_xml": "Download Moodle XML",
         "error_not_found": "🚨 SMILES or Name not found for '{0}'.",
         "intro": "Enter the name or SMILES of a compound to generate questions where the molecule's name is shown and the student must draw its complete skeletal structure in the JSME editor.",
         "jsme_processing_error": "Error processing JSME response: {0}",
+        "label_required": "Please enter a label for this question.",
         "molecule_name": "Molecule Name or SMILES:",
+        "name_input_required": "Please enter a molecule name or SMILES.",
         "no_questions": "No questions added yet.",
         "not_normalized": "⚠️ Pending JSME",
         "preview_footer_mol": "➡️ The student must draw the molecular structure in the editor",
         "preview_intro": "The student will see something like this:",
         "preview_question_mol": "Use the JSME editor to draw the molecular structure of **Paracetamol**:",
         "preview_title": "👁️ View sample Moodle question",
-        "q_text_template": "Use the JSME editor to draw the molecular structure of: **{0}**",
+        "q_text_template": "Use the JSME editor to draw the molecular structure of <strong>{0}</strong>",
         "questions_added_subtitle": "Added Questions",
         "searching": "🔍 Searching NCI CIR for: {0}...",
         "section_bulk": "Bulk Upload",
@@ -54,23 +56,25 @@ TEXTS = {
     },
     "es": {
         "add_to_list": "Añadir a la lista",
-        "bulk_note": "Sube un .csv o .xlsx con columna **'name'** (API) y, opcionalmente, **'nombre'** (etiqueta en Moodle).",
+        "bulk_note": "Sube un .csv o .xlsx con columna **'name'** (nombre en inglés o SMILES, para la búsqueda en la API y el texto de la pregunta) y una columna **'nombre'** (nombre en español, usado como etiqueta en el banco de preguntas y en el enunciado de la pregunta).",
         "clear_all": "Borrar todo",
-        "column_error": "🚨 El archivo debe contener al menos una columna 'name' o 'nombre'.",
-        "custom_question_name": "Etiqueta en Español (ej. Aspirina):",
+        "column_error": "🚨 El archivo debe contener las columnas 'name' y 'nombre'.",
+        "custom_question_name": "Nombre en español (para el texto de la pregunta, obligatorio):",
         "delete_question": "Eliminar pregunta",
         "download_xml": "Descargar XML de Moodle",
         "error_not_found": "🚨 No se encontró SMILES o nombre para '{0}'.",
         "intro": "Introduce el nombre o SMILES de un compuesto para generar preguntas en las que se muestra el nombre de la molécula y el alumno debe dibujar su estructura lineoangular completa en el editor JSME.",
         "jsme_processing_error": "Error procesando respuesta JSME: {0}",
-        "molecule_name": "Nombre de molécula en inglés o SMILES:",
+        "label_required": "Introduce el nombre en español de la molécula (campo obligatorio).",
+        "molecule_name": "Nombre en inglés o SMILES (para búsqueda):",
+        "name_input_required": "Introduce el nombre en inglés o SMILES de la molécula.",
         "no_questions": "Aún no hay preguntas añadidas.",
         "not_normalized": "⚠️ Pendiente de JSME",
         "preview_footer_mol": "➡️ El alumno verá el lienzo vacío y deberá dibujar la estructura lineoangular.",
         "preview_intro": "El alumno verá algo como esto:",
         "preview_question_mol": "Utiliza el editor JSME para dibujar la estructura molecular del **Paracetamol**:",
         "preview_title": "👁️ Ver ejemplo de pregunta en Moodle",
-        "q_text_template": "Utiliza el editor JSME para dibujar la estructura molecular de: **{0}**",
+        "q_text_template": "Utiliza el editor JSME para dibujar la estructura molecular de <strong>{0}</strong>",
         "questions_added_subtitle": "Preguntas Añadidas",
         "searching": "🔍 Buscando en NCI CIR: {0}...",
         "section_bulk": "Carga Masiva",
@@ -146,6 +150,13 @@ def escape_smiles_for_xml(smiles):
 
 def generate_xml(questions, lang):
     """Generates a Moodle-compatible XML file for pmatchjme questions.
+
+    Each entry in questions must be a dict with:
+      - 'name'       : label shown in the Moodle question bank
+      - 'text_name'  : molecule name used in the question body text
+                       (English name in EN mode; Spanish name in ES mode)
+      - 'smiles_norm': normalised SMILES string
+
     Includes a category node and uses CDATA sections for HTML question text."""
     texts = TEXTS[lang]
     root = ET.Element("quiz")
@@ -153,25 +164,25 @@ def generate_xml(questions, lang):
     # Category node to organise the question bank
     cat_node = ET.SubElement(root, "question", type="category")
     cat_text = ET.SubElement(ET.SubElement(cat_node, "category"), "text")
-    cat_text.text = f"$course$/Skeletal_Formulas_{lang.upper()}"
+    cat_text.text = "$course$/Skeletal_Formulas_" + lang.upper()
 
-    for name, smiles in questions:
+    for q in questions:
         q_node = ET.SubElement(root, "question", type="pmatchjme")
 
-        # Question name (shown in the question bank)
-        ET.SubElement(ET.SubElement(q_node, "name"), "text").text = name
+        # Question bank label
+        ET.SubElement(ET.SubElement(q_node, "name"), "text").text = q["name"]
 
-        # Question body with CDATA for safe HTML rendering
-        q_text_val = texts["q_text_template"].format(name)
+        # Question body: text_name ensures the molecule name matches the interface language
+        q_text_val = texts["q_text_template"].format(q["text_name"])
         qtext_node = ET.SubElement(q_node, "questiontext", format="html")
-        ET.SubElement(qtext_node, "text").text = f"<![CDATA[<p>{q_text_val}</p>]]>"
+        ET.SubElement(qtext_node, "text").text = "<p>" + q_text_val + "</p>"
 
         # Accepted answer in pmatchjme format
         ans_node = ET.SubElement(q_node, "answer", fraction="100")
-        ET.SubElement(ans_node, "text").text = f"match({escape_smiles_for_xml(smiles)})"
+        ET.SubElement(ans_node, "text").text = "match(" + escape_smiles_for_xml(q["smiles_norm"]) + ")"
 
         # Technical fields required by Moodle
-        ET.SubElement(q_node, "modelanswer").text = smiles
+        ET.SubElement(q_node, "modelanswer").text = q["smiles_norm"]
         ET.SubElement(q_node, "generalfeedback", format="html").text = "<text></text>"
 
     buffer = io.BytesIO()
@@ -202,6 +213,10 @@ def render_molecule_app(lang="en"):
         st.session_state.m_jsme_in = None
     if "m_curr_req" not in st.session_state:
         st.session_state.m_curr_req = None
+    if "m_form_key" not in st.session_state:
+        st.session_state.m_form_key = 0
+    if "m_form_status" not in st.session_state:
+        st.session_state.m_form_status = None
 
     def start_jsme_loop():
         """Finds the next un-normalised question and queues it for JSME processing."""
@@ -240,24 +255,53 @@ def render_molecule_app(lang="en"):
 
         # ---- Individual entry tab ----
         with t_ind:
-            status_placeholder = st.empty()
-            with st.form("mol_form", clear_on_submit=True):
+            # The form key counter is incremented on each successful submission so
+            # that Streamlit renders a fresh, empty form after a question is added.
+            with st.form(key=f"mol_form_{st.session_state.m_form_key}"):
                 n_input = st.text_input(texts["molecule_name"])
                 n_label = st.text_input(texts["custom_question_name"])
+
                 if st.form_submit_button(texts["add_to_list"], type="primary", icon=":material/add_task:"):
-                    if n_input:
-                        status_placeholder.info(texts["searching"].format(n_input))
+                    if not n_input:
+                        # n_input is always required: it drives the API lookup
+                        st.session_state.m_form_status = ("error", texts["name_input_required"])
+                    elif lang == "es" and not n_label:
+                        # In Spanish mode the Spanish name is required: it is used both
+                        # as the question bank label and in the question body text
+                        st.session_state.m_form_status = ("error", texts["label_required"])
+                    else:
+                        st.session_state.m_form_status = ("info", texts["searching"].format(n_input))
                         smiles_raw = process_input_to_smiles(n_input)
                         if smiles_raw:
+                            if lang == "es":
+                                # Spanish: n_label is shown in the question body and used
+                                # as the question bank label
+                                bank_name = n_label
+                                text_name = n_label
+                            else:
+                                # English: n_input is the molecule name shown in the question
+                                # body; n_label (optional) overrides the question bank label
+                                bank_name = n_label if n_label else n_input
+                                text_name = n_input
                             st.session_state.m_questions.append({
-                                "name": n_label if n_label else n_input,
+                                "name": bank_name,
+                                "text_name": text_name,
                                 "smiles_raw": smiles_raw,
                                 "smiles_norm": None,
                             })
-                            status_placeholder.empty()
+                            st.session_state.m_form_status = None
+                            st.session_state.m_form_key += 1  # Forces a fresh empty form
                             st.rerun()
                         else:
-                            status_placeholder.error(texts["error_not_found"].format(n_input))
+                            st.session_state.m_form_status = ("error", texts["error_not_found"].format(n_input))
+
+            # Status message displayed below the form (persists across reruns)
+            if st.session_state.m_form_status:
+                level, msg = st.session_state.m_form_status
+                if level == "error":
+                    st.error(msg)
+                else:
+                    st.info(msg)
 
         # ---- Bulk upload tab ----
         with t_bulk:
@@ -272,26 +316,53 @@ def render_molecule_app(lang="en"):
                     )
                     has_name_en = "name" in df.columns
                     has_name_es = "nombre" in df.columns
+                    has_label_en = "question_label" in df.columns
 
-                    if has_name_en or has_name_es:
-                        # Use 'name' for the API call when available; fall back to 'nombre'
-                        col_for_api = "name" if has_name_en else "nombre"
+                    # In Spanish mode both 'name' (API) and 'nombre' (question text) are required.
+                    # In English mode only 'name' is required; the optional label column can be
+                    # named either 'question_label' or 'nombre' (first one found takes priority).
+                    missing_cols = not has_name_en or (lang == "es" and not has_name_es)
 
+                    if missing_cols:
+                        st.error(texts["column_error"])
+                        col_for_api = None
+                    else:
+                        col_for_api = "name"
+                        # Resolve the optional label column for English mode
+                        col_label_en = (
+                            "question_label" if has_label_en
+                            else "nombre" if has_name_es
+                            else None
+                        )
+
+                    if col_for_api:
                         for _, row in df.iterrows():
                             val_api = str(row[col_for_api]).strip()
                             if val_api and val_api != "nan":
                                 smiles_raw = process_input_to_smiles(val_api)
                                 if smiles_raw:
-                                    # Label priority: 'nombre' > 'name' > API value
-                                    moodle_label = str(row.get("nombre", row.get("name", val_api)))
+                                    nombre = str(row["nombre"]).strip() if has_name_es else ""
+                                    name_en = str(row["name"]).strip() if has_name_en else val_api
+                                    q_label = str(row["question_label"]).strip() if has_label_en else ""
+                                    valid_nombre = nombre and nombre != "nan"
+                                    valid_q_label = q_label and q_label != "nan"
+                                    if lang == "es":
+                                        # Spanish: 'nombre' used for both bank label and
+                                        # question body; fall back to English name if absent
+                                        bank_name = nombre if valid_nombre else name_en
+                                        text_name = bank_name
+                                    else:
+                                        # English: 'question_label' overrides the bank label
+                                        # if present; question body always uses the English name
+                                        bank_name = q_label if valid_q_label else name_en
+                                        text_name = name_en
                                     st.session_state.m_questions.append({
-                                        "name": moodle_label,
+                                        "name": bank_name,
+                                        "text_name": text_name,
                                         "smiles_raw": smiles_raw,
                                         "smiles_norm": None,
                                     })
                         st.rerun()
-                    else:
-                        st.error(texts["column_error"])
 
     # ---- Question list panel ----
     with l_col:
@@ -311,18 +382,31 @@ def render_molecule_app(lang="en"):
                     st.rerun()
             else:
                 try:
-                    xml_data = generate_xml([(q["name"], q["smiles_norm"]) for q in qs], lang)
+                    xml_data = generate_xml(qs, lang)
+                    st.markdown("""
+                        <style>
+                        div[data-testid="stDownloadButton"] button {
+                            background-color: #28a745;
+                            color: white;
+                            border: none;
+                        }
+                        div[data-testid="stDownloadButton"] button:hover {
+                            background-color: #218838;
+                            color: white;
+                            border: none;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
                     st.download_button(
                         texts["download_xml"],
                         data=xml_data,
                         file_name="moodle_chemistry.xml",
-                        type="primary",
                         icon=":material/download:",
                         use_container_width=True,
                     )
                 except Exception as e:
                     st.error(texts["xml_error"].format(e))
-
+        
             if st.button(texts["clear_all"], icon=":material/delete_sweep:", use_container_width=True):
                 st.session_state.m_questions = []
                 st.rerun()
