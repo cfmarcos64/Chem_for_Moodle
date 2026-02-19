@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Moodle Reaction Question Generator
@@ -952,13 +953,26 @@ def render_reaction_app(lang: str = None):
             else:
                 try:
                     xml_data = generate_xml(st.session_state.reaction_questions, st.session_state.lang)
+                    st.markdown("""
+                        <style>
+                        div[data-testid="stDownloadButton"] button {
+                            background-color: #28a745;
+                            color: white;
+                            border: none;
+                        }
+                        div[data-testid="stDownloadButton"] button:hover {
+                            background-color: #218838;
+                            color: white;
+                            border: none;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
                     st.download_button(
                         label=texts["download_xml_button"],
                         data=xml_data,
                         file_name="moodle_reactions.xml",
                         mime="application/xml",
                         use_container_width=True,
-                        type="primary",
                         icon=":material/download:",
                     )
                 except Exception as e:
