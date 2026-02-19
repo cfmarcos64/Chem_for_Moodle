@@ -470,13 +470,13 @@ def render_fischer_app(lang="en"):
 
     with list_c:
         st.subheader(texts["questions_added_subtitle"])
-        
+    
         qs = st.session_state.f_questions
-        
+    
         # Recalculate pending each render (button dynamic update)
         pending = [i for i, q in enumerate(qs) if q.get('smiles_normalized') is None]
         pending_count = len(pending)
-        
+    
         if qs:
             # Normalization button
             if pending_count > 0:
@@ -491,17 +491,33 @@ def render_fischer_app(lang="en"):
                     st.rerun()
             else:
                 # All normalized → show Download button
-                xml_data = generate_xml_local(qs, texts)
-                st.download_button(
-                    label=texts["download_xml"],
-                    data=xml_data,
-                    file_name="fischer_moodle.xml",
-                    mime="application/xml",
-                    type="primary",
-                    icon=":material/download:",
-                    use_container_width=True
-                )
-            
+                try:
+                    xml_data = generate_xml_local(qs, texts)
+                    st.markdown("""
+                        <style>
+                        div[data-testid="stDownloadButton"] button {
+                            background-color: #28a745;
+                            color: white;
+                            border: none;
+                        }
+                        div[data-testid="stDownloadButton"] button:hover {
+                            background-color: #218838;
+                            color: white;
+                            border: none;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+                    st.download_button(
+                        label=texts["download_xml"],
+                        data=xml_data,
+                        file_name="fischer_moodle.xml",
+                        mime="application/xml",
+                        icon=":material/download:",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(texts["xml_error"].format(e))
+    
             # Clear all button
             if st.button(
                 texts["clear_all"],
@@ -511,13 +527,13 @@ def render_fischer_app(lang="en"):
                 st.session_state.f_questions = []
                 st.session_state.f_error_msg = None
                 st.rerun()
-            
+    
             st.divider()
-            
+    
             # Question list
             for i, q in enumerate(qs):
                 is_normalized = q.get('smiles_normalized') is not None
-                
+    
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([1.5, 3, 0.5])
                     with c1:
@@ -534,7 +550,7 @@ def render_fischer_app(lang="en"):
                             st.session_state.f_questions.pop(i)
                             st.rerun()
                     st.divider()
-        
+    
         else:
             st.info(texts["no_questions"])
 
