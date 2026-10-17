@@ -132,8 +132,9 @@ This project is licensed under the CC BY_NC_SA 4.0 License. See the [LICENSE](LI
 
 *This tool was created to assist educators and chemists in quickly generating high-quality Moodle quiz content.*
 
-## Contact
-Created by Carlos Fernández Marcos
-GitHub: @cfmarcos64
-Email: cfmarcos64@gmail.com
+## 👥 Authors & Contributors
+
+* **Carlos Fernández Marcos** - *Initial development & Chemistry logic* ([@cfmarcos64](https://github.com/cfmarcos64)) Email: cfmarcos64@gmail.com
+* **Sonia Martínez-Caballero** - *Testing & feedback* ([@msoniam28_github](https://github.com/msoniam28))
+
 Last updated: February 2026
